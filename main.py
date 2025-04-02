@@ -87,7 +87,7 @@ async def beautify_prompt(prompt):
         response = client.chat.completions.create(
             model="meta/llama-3.1-70b-instruct",
             messages=[
-                {"role": "system", "content": "You are an expert at crafting detailed, vivid prompts for image generation. Your task is to enhance the user's prompt to create a more detailed and visually appealing image. Add details about lighting, style, mood, and composition. Keep the essence of the original prompt but make it more descriptive. Respond ONLY with the enhanced prompt, nothing else."},
+                {"role": "system", "content": "You are an expert at crafting detailed, vivid prompts for image generation. Your task is to enhance the user's prompt to create a more detailed and visually appealing image. Add details about lighting, style, mood, and composition. Keep the essence of the original prompt but make it more descriptive. Respond ONLY with the enhanced prompt, nothing else. If the prompt contains inappropriate content, respond with 'CONTENT_POLICY_VIOLATION' and nothing else."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=300
@@ -99,6 +99,21 @@ async def beautify_prompt(prompt):
         if not enhanced_prompt:
             print("Beautification returned empty result, using original prompt")
             return prompt
+        
+        # Check if the response indicates a content policy violation or refusal
+        refusal_phrases = [
+            "i cannot", "i'm unable to", "i am unable to", 
+            "i can't", "cannot create", "can't create",
+            "unable to create", "not appropriate", "inappropriate",
+            "against policy", "content policy", "CONTENT_POLICY_VIOLATION",
+            "violates", "violation", "not allowed", "prohibited"
+        ]
+        
+        for phrase in refusal_phrases:
+            if phrase.lower() in enhanced_prompt.lower():
+                print(f"Content policy violation detected: {enhanced_prompt}")
+                # Return a special marker that will be caught by the image generation function
+                return "CONTENT_POLICY_VIOLATION"
             
         print(f"Original prompt: {prompt}")
         print(f"Enhanced prompt: {enhanced_prompt}")
@@ -146,6 +161,50 @@ async def detect_names(prompt):
         print(f"Error detecting names: {str(e)}")
         return []  # Return empty list if detection fails
 
+import aiohttp
+from io import BytesIO
+from PIL import Image
+import numpy as np
+
+async def is_black_image(image_url, threshold=0.95):
+    """
+    Check if an image is mostly black (which can happen with content filter blocks).
+    
+    Args:
+        image_url: URL of the image to check
+        threshold: Percentage of pixels that need to be black for the image to be considered "black"
+        
+    Returns:
+        True if the image is mostly black, False otherwise
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url) as response:
+                if response.status != 200:
+                    return False
+                
+                image_data = await response.read()
+                image = Image.open(BytesIO(image_data))
+                
+                # Convert to grayscale and get pixel data
+                gray_image = image.convert('L')
+                pixels = np.array(gray_image)
+                
+                # Count dark pixels (value < 10 on a 0-255 scale)
+                dark_pixels = np.sum(pixels < 10)
+                total_pixels = pixels.size
+                
+                # Calculate the ratio of dark pixels
+                dark_ratio = dark_pixels / total_pixels
+                
+                print(f"Image darkness check: {dark_ratio:.2f} of pixels are dark (threshold: {threshold})")
+                
+                # Return True if the ratio exceeds the threshold
+                return dark_ratio > threshold
+    except Exception as e:
+        print(f"Error checking if image is black: {str(e)}")
+        return False  # Assume it's not black if we can't check
+
 async def generate_image(model_name, prompt):
     """
     Generate an image using Function Network's API.
@@ -168,6 +227,10 @@ async def generate_image(model_name, prompt):
         
         # Get the image URL from the response
         image_url = response.data[0].url
+        
+        # Check if the image is mostly black (content filter)
+        if await is_black_image(image_url):
+            return None, "Generated image appears to be blocked by content filter (black image)"
         
         # Get the display name for the model
         model_display_name = next((m["display_name"] for m in MODELS if m["name"] == model_name), model_name)
@@ -250,6 +313,17 @@ class DescriptionModal(discord.ui.Modal):
         # Beautify the prompt
         beautified_prompt = await beautify_prompt(updated_prompt)
         
+        # Check if the prompt was flagged as inappropriate by the beautification process
+        if beautified_prompt == "CONTENT_POLICY_VIOLATION":
+            print(f"Content policy violation detected in prompt beautification: {updated_prompt}")
+            # Send a warning to the user (ephemeral)
+            await interaction.followup.send(
+                "Warning: Your prompt may contain inappropriate content. I'll try to generate an image using the original prompt, but some models may reject it.",
+                ephemeral=True
+            )
+            # Use the updated prompt with descriptions instead of the beautified one
+            beautified_prompt = updated_prompt
+        
         # Generate the image
         image_url, model_used, error_messages = await try_generate_image(beautified_prompt)
         
@@ -322,6 +396,17 @@ class NameOptionsView(discord.ui.View):
         # Beautify the prompt
         beautified_prompt = await beautify_prompt(updated_prompt)
         
+        # Check if the prompt was flagged as inappropriate by the beautification process
+        if beautified_prompt == "CONTENT_POLICY_VIOLATION":
+            print(f"Content policy violation detected in prompt beautification: {updated_prompt}")
+            # Send a warning to the user (ephemeral)
+            await interaction.followup.send(
+                "Warning: Your prompt may contain inappropriate content. I'll try to generate an image using the original prompt, but some models may reject it.",
+                ephemeral=True
+            )
+            # Use the updated prompt with descriptions instead of the beautified one
+            beautified_prompt = updated_prompt
+        
         # Generate the image
         image_url, model_used, error_messages = await try_generate_image(beautified_prompt)
         
@@ -354,6 +439,17 @@ class NameOptionsView(discord.ui.View):
         
         # Beautify the original prompt without adding descriptions
         beautified_prompt = await beautify_prompt(self.original_prompt)
+        
+        # Check if the prompt was flagged as inappropriate by the beautification process
+        if beautified_prompt == "CONTENT_POLICY_VIOLATION":
+            print(f"Content policy violation detected in prompt beautification: {self.original_prompt}")
+            # Send a warning to the user (ephemeral)
+            await interaction.followup.send(
+                "Warning: Your prompt may contain inappropriate content. I'll try to generate an image using the original prompt, but some models may reject it.",
+                ephemeral=True
+            )
+            # Use the original prompt instead of the beautified one
+            beautified_prompt = self.original_prompt
         
         # Generate the image
         image_url, model_used, error_messages = await try_generate_image(beautified_prompt)
@@ -422,6 +518,17 @@ async def generate_and_send_image(interaction, prompt):
     try:
         # Try to beautify the prompt, but use original if it fails
         beautified_prompt = await beautify_prompt(prompt)
+        
+        # Check if the prompt was flagged as inappropriate by the beautification process
+        if beautified_prompt == "CONTENT_POLICY_VIOLATION":
+            print(f"Content policy violation detected in prompt beautification: {prompt}")
+            # Send a warning to the user (ephemeral)
+            await interaction.followup.send(
+                "Warning: Your prompt may contain inappropriate content. I'll try to generate an image using the original prompt, but some models may reject it.",
+                ephemeral=True
+            )
+            # Use the original prompt instead of the beautified one
+            beautified_prompt = prompt
         
         # Try to generate image with multiple models
         image_url, model_used, error_messages = await try_generate_image(beautified_prompt)
