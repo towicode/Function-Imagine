@@ -292,7 +292,7 @@ class DescriptionModal(discord.ui.Modal):
     
     async def on_submit(self, interaction: discord.Interaction):
         """Handle the modal submission."""
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=True)
         
         # Get descriptions from text inputs
         for child in self.children:
@@ -338,7 +338,11 @@ class DescriptionModal(discord.ui.Modal):
             embed.set_footer(text=f"Generated with {model_used}")
             
             # Send the embed with the image - this is the final image message, so it's public
-            await interaction.followup.send(embed=embed)
+            # Use channel.send instead of followup.send to ensure the message is visible to everyone
+            await interaction.channel.send(embed=embed)
+            
+            # Send a confirmation to the user (ephemeral)
+            await interaction.followup.send("Image generated successfully!", ephemeral=True)
         else:
             # If all models failed, send error message (ephemeral)
             error_msg = "Failed to generate image with all available models:\n\n"
@@ -367,7 +371,7 @@ class NameOptionsView(discord.ui.View):
     @discord.ui.button(label="Surprise Me", style=discord.ButtonStyle.success)
     async def surprise_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle the 'Surprise Me' button click."""
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=True)
         
         # Generate descriptions for all names
         descriptions = {}
@@ -421,7 +425,11 @@ class NameOptionsView(discord.ui.View):
             embed.set_footer(text=f"Generated with {model_used}")
             
             # Send the embed with the image - this is the final image message, so it's public
-            await interaction.followup.send(embed=embed)
+            # Use channel.send instead of followup.send to ensure the message is visible to everyone
+            await interaction.channel.send(embed=embed)
+            
+            # Send a confirmation to the user (ephemeral)
+            await interaction.followup.send("Image generated successfully!", ephemeral=True)
         else:
             # If all models failed, send error message (ephemeral)
             error_msg = "Failed to generate image with all available models:\n\n"
@@ -435,7 +443,7 @@ class NameOptionsView(discord.ui.View):
     @discord.ui.button(label="Skip & Generate", style=discord.ButtonStyle.secondary)
     async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle the 'Skip & Generate' button click."""
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=True)
         
         # Beautify the original prompt without adding descriptions
         beautified_prompt = await beautify_prompt(self.original_prompt)
@@ -465,7 +473,11 @@ class NameOptionsView(discord.ui.View):
             embed.set_footer(text=f"Generated with {model_used}")
             
             # Send the embed with the image - this is the final image message, so it's public
-            await interaction.followup.send(embed=embed)
+            # Use channel.send instead of followup.send to ensure the message is visible to everyone
+            await interaction.channel.send(embed=embed)
+            
+            # Send a confirmation to the user (ephemeral)
+            await interaction.followup.send("Image generated successfully!", ephemeral=True)
         else:
             # If all models failed, send error message (ephemeral)
             error_msg = "Failed to generate image with all available models:\n\n"
@@ -485,7 +497,8 @@ async def imagine(interaction: discord.Interaction, prompt: str):
         interaction: The Discord interaction object
         prompt: The text prompt to generate an image from
     """
-    await interaction.response.defer(thinking=True)
+    # Use ephemeral=True for the initial defer to make the "thinking..." message private
+    await interaction.response.defer(thinking=True, ephemeral=True)
     
     try:
         # Detect names in the prompt
@@ -494,10 +507,11 @@ async def imagine(interaction: discord.Interaction, prompt: str):
         if names and len(names) > 0:
             # Names detected, ask for descriptions
             view = NameOptionsView(names, prompt)
+            # Make sure to use ephemeral=True to make this message visible only to the requester
             await interaction.followup.send(
                 f"I detected the following names in your prompt: {', '.join(names)}. What would you like to do?",
                 view=view,
-                ephemeral=True  # Make this message visible only to the requester
+                ephemeral=True
             )
         else:
             # No names detected, proceed with prompt beautification and image generation
@@ -544,7 +558,11 @@ async def generate_and_send_image(interaction, prompt):
             embed.set_footer(text=f"Generated with {model_used}")
             
             # Send the embed with the image - this is the final image message, so it's public
-            await interaction.followup.send(embed=embed)
+            # Use channel.send instead of followup.send to ensure the message is visible to everyone
+            await interaction.channel.send(embed=embed)
+            
+            # Send a confirmation to the user (ephemeral)
+            await interaction.followup.send("Image generated successfully!", ephemeral=True)
         else:
             # If all models failed, send error message (ephemeral)
             error_msg = "Failed to generate image with all available models:\n\n"
