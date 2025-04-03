@@ -577,10 +577,10 @@ async def generate_and_send_image(interaction, prompt):
         print(f"Error generating image: {str(e)}")
         await interaction.followup.send(f"An error occurred while generating the image: {str(e)}", ephemeral=True)
 
-@bot.tree.command(name="imaginequote", description="Generate an image based on a random quote from the server")
+@bot.tree.command(name="imaginequote", description="Generate an image based on the last quote from UB3R-BOT")
 async def imaginequote(interaction: discord.Interaction):
     """
-    Slash command to generate an image based on a random quote from the server.
+    Slash command to generate an image based on the last quote from UB3R-BOT in the channel.
     
     Args:
         interaction: The Discord interaction object
@@ -589,53 +589,51 @@ async def imaginequote(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True, ephemeral=True)
     
     try:
-        # Send a message to trigger UB3R-B0T to post a quote
-        quote_request_msg = await interaction.channel.send(".quote")
+        # Get the last 50 messages from the channel
+        messages = [msg async for msg in interaction.channel.history(limit=50)]
         
-        # Wait for UB3R-B0T to respond with a quote
-        def check_quote_response(message):
-            # Check if the message is from UB3R-B0T and contains a quote
-            return (
-                message.author.name == "UB3R-B0T" and 
-                message.channel.id == interaction.channel.id and
-                "#" in message.content
+        # Find the most recent message from UB3R-BOT that contains a quote
+        quote_message = None
+        for message in messages:
+            if (message.author.name == "UB3R-B0T" and 
+                "#" in message.content):
+                quote_message = message
+                break
+        
+        if not quote_message:
+            await interaction.followup.send(
+                "Couldn't find a recent quote from UB3R-BOT. Please make sure someone has used the `.quote` command recently.",
+                ephemeral=True
             )
+            return
         
-        try:
-            # Wait for UB3R-B0T's response (timeout after 10 seconds)
-            quote_response = await bot.wait_for('message', check=check_quote_response, timeout=10.0)
-            
-            # Extract the quote text (between the quote number and the attribution)
-            quote_content = quote_response.content
-            
-            # Find the position after the quote number (e.g., "#1274")
-            quote_start_match = re.search(r'#\d+\s*', quote_content)
-            if not quote_start_match:
-                await interaction.followup.send("Couldn't parse the quote format.", ephemeral=True)
-                return
-            
-            quote_start = quote_start_match.end()
-            
-            # Find the position of the attribution (starts with @)
-            attribution_match = re.search(r'@[\w\s]+\(', quote_content[quote_start:])
-            if attribution_match:
-                quote_end = quote_start + attribution_match.start()
-            else:
-                # If no attribution found, use the rest of the content
-                quote_end = len(quote_content)
-            
-            # Extract the quote text
-            quote_text = quote_content[quote_start:quote_end].strip()
-            
-            # If we got a valid quote, generate an image based on it
-            if quote_text:
-                await generate_and_send_image(interaction, quote_text)
-            else:
-                await interaction.followup.send("Couldn't extract a valid quote from the response.", ephemeral=True)
-                
-        except asyncio.TimeoutError:
-            # If UB3R-B0T doesn't respond in time
-            await interaction.followup.send("Timed out waiting for a quote response from UB3R-B0T.", ephemeral=True)
+        # Extract the quote text (between the quote number and the attribution)
+        quote_content = quote_message.content
+        
+        # Find the position after the quote number (e.g., "#1274")
+        quote_start_match = re.search(r'#\d+\s*', quote_content)
+        if not quote_start_match:
+            await interaction.followup.send("Couldn't parse the quote format.", ephemeral=True)
+            return
+        
+        quote_start = quote_start_match.end()
+        
+        # Find the position of the attribution (starts with @)
+        attribution_match = re.search(r'@[\w\s]+\(', quote_content[quote_start:])
+        if attribution_match:
+            quote_end = quote_start + attribution_match.start()
+        else:
+            # If no attribution found, use the rest of the content
+            quote_end = len(quote_content)
+        
+        # Extract the quote text
+        quote_text = quote_content[quote_start:quote_end].strip()
+        
+        # If we got a valid quote, generate an image based on it
+        if quote_text:
+            await generate_and_send_image(interaction, quote_text)
+        else:
+            await interaction.followup.send("Couldn't extract a valid quote from the message.", ephemeral=True)
             
     except Exception as e:
         # If any part of the process fails
