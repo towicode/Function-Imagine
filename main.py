@@ -592,19 +592,35 @@ async def imaginequote(interaction: discord.Interaction):
         # Get the last 50 messages from the channel
         messages = [msg async for msg in interaction.channel.history(limit=50)]
         
+        # Debug: Print message authors to help identify the correct bot name
+        debug_info = "Checking recent messages:\n"
+        for i, message in enumerate(messages[:10]):  # Only show first 10 for brevity
+            author_name = message.author.name if hasattr(message.author, 'name') else "Unknown"
+            content_preview = message.content[:30] + "..." if len(message.content) > 30 else message.content
+            debug_info += f"{i+1}. Author: {author_name}, Content: {content_preview}\n"
+        
+        print(debug_info)
+        
         # Find the most recent message from UB3R-BOT that contains a quote
+        # Use more flexible matching for the bot name
         quote_message = None
         for message in messages:
-            if (message.author.name == "UB3R-B0T" and 
-                "#" in message.content):
+            author_name = message.author.name if hasattr(message.author, 'name') else ""
+            # Check for variations of the UB3R-BOT name (case insensitive)
+            is_uber_bot = any(name.lower() in author_name.lower() for name in ["ub3r-b0t", "ub3r b0t", "ub3rb0t", "uber-bot", "uber bot", "uberbot"])
+            
+            if is_uber_bot and "#" in message.content:
                 quote_message = message
+                print(f"Found quote message from {author_name}: {message.content[:50]}...")
                 break
         
         if not quote_message:
-            await interaction.followup.send(
-                "Couldn't find a recent quote from UB3R-BOT. Please make sure someone has used the `.quote` command recently.",
-                ephemeral=True
-            )
+            # More detailed error message with debugging info
+            error_msg = "Couldn't find a recent quote from UB3R-BOT. Please make sure someone has used the `.quote` command recently.\n\n"
+            error_msg += "Debug info: Checked the last " + str(len(messages)) + " messages in this channel.\n"
+            error_msg += "If you see the quote in the channel, please check if the bot's name might be different than expected."
+            
+            await interaction.followup.send(error_msg, ephemeral=True)
             return
         
         # Extract the quote text (between the quote number and the attribution)
